@@ -6,6 +6,10 @@ This is a Model Context Protocol (MCP) server for the TikTok Ad Library.
 
 With this you can search TikTok's public ad library for any advertiser, see the creatives they're running and analyze their advertising. You can analyze ad images and cover frames, analyze video ads with scene-by-scene insights, compare advertisers' strategies, and get insights into what's working in their campaigns.
 
+Here's an example of what you can do when it's connected to Claude.
+
+<!-- TODO: record a TikTok demo and drop the github.com/user-attachments URL here, as in the Facebook and Google repos. -->
+
 ---
 
 ## Hosted Version (Recommended)
