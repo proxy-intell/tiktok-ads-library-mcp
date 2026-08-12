@@ -1,7 +1,7 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.proxy-intell/tiktok-ads-library",
-  "description": "The most visual MCP server for the TikTok Ad Library. Query any brand and your AI renders the actual ad creative inside chat — video thumbnails, hooks, and targeting data — no external tools needed.",
+  "description": "The most visual MCP server for the TikTok Ad Library. Query any brand and your AI renders the actual ad creative inside chat — video thumbnails, hooks, and targeting data — no external tools needed. Zero-setup hosted version (no API keys, works in ChatGPT/Claude/Cursor) at https://useproxy.dev/",
   "repository": {
     "url": "https://github.com/proxy-intell/tiktok-ads-library-mcp",
     "source": "github"
