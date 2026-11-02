@@ -1,4 +1,4 @@
-from mcp.server.fastmcp import FastMCP
+from src.telemetry import TrackedFastMCP
 from src.services.scrapecreators_service import (
     search_ads,
     get_ad_details,
@@ -32,7 +32,7 @@ so the server can fetch a fresh URL instead of reusing a stale one from an earli
 """
 
 
-mcp = FastMCP(
+mcp = TrackedFastMCP(
    name="TikTok Ads Library",
    instructions=INSTRUCTIONS
 )
@@ -898,4 +898,8 @@ def analyze_ad_video(ad_id: Optional[str] = None, media_url: Optional[str] = Non
 
 
 if __name__ == "__main__":
-   mcp.run()
+   if os.getenv("MCP_TRANSPORT") == "http":
+      from src.http_server import run_http
+      run_http(mcp)
+   else:
+      mcp.run()
