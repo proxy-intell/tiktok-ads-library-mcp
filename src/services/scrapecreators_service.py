@@ -1,6 +1,7 @@
 import requests
 import sys
 import os
+import time
 import logging
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
@@ -127,34 +128,37 @@ def _format_timestamp(value: Any) -> Optional[str]:
 
 
 def _request(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
-    """Issue an authenticated GET against the ScrapeCreators API and return parsed JSON."""
+    """GET a ScrapeCreators endpoint and return parsed JSON. Retries once on a 5xx or dropped connection."""
     api_key = get_scrapecreators_api_key()
-
-    response = requests.get(
-        url,
-        headers={"x-api-key": api_key},
-        params=params,
-        timeout=30
-    )
-    check_credit_status(response)
-    response.raise_for_status()
-
-    content = response.json()
-    if not content.get('success'):
-        raise Exception(f"API returned unsuccessful response: {content}")
-
-    return content
+    for attempt in range(2):
+        try:
+            response = requests.get(url, headers={"x-api-key": api_key}, params=params, timeout=30)
+        except requests.ConnectionError:
+            if attempt:
+                raise
+            time.sleep(2)
+            continue
+        if response.status_code >= 500 and not attempt:
+            logger.warning(f"ScrapeCreators returned {response.status_code}, retrying once")
+            time.sleep(2)
+            continue
+        check_credit_status(response)
+        response.raise_for_status()
+        content = response.json()
+        if not content.get('success'):
+            raise Exception(f"API returned unsuccessful response: {content}")
+        return content
 
 
 def search_ads(query: str, limit: int = 50, cursor: Optional[str] = None) -> Dict[str, Any]:
     """
-    Search the TikTok Ad Library by advertiser name or keyword.
+    Search the TikTok Ad Library by registered advertiser name.
 
     Pages through results until `limit` ads are collected, the API runs out of
     pages, or MAX_PAGES is hit.
 
     Args:
-        query: Advertiser name (e.g. "Anysphere") or keyword to search for.
+        query: Exact, case-sensitive advertiser name (e.g. "Anysphere").
         limit: Maximum number of ads to return.
         cursor: Pagination cursor from a previous response.
 
@@ -179,7 +183,18 @@ def search_ads(query: str, limit: int = 50, cursor: Optional[str] = None) -> Dic
         if cursor:
             params["cursor"] = cursor
 
-        content = _request(SEARCH_API_URL, params)
+        try:
+            content = _request(SEARCH_API_URL, params)
+        except (CreditExhaustedException, RateLimitException):
+            raise
+        except Exception as e:
+            # An error on the first page is a failed lookup, not "no ads": let the caller report it.
+            # Later pages keep what was already collected, with a cursor to resume from.
+            if pages == 0:
+                raise
+            logger.warning(f"Stopped paging '{query}' after {pages} page(s): {e}")
+            has_more = True
+            break
         pages += 1
 
         advertiser_name = content.get('advertiser_name') or advertiser_name
