@@ -27,7 +27,7 @@ This server provides access to TikTok's public Ad Library data through the Scrap
 It allows you to search for advertisers and retrieve the ads they are running on TikTok.
 
 Workflow:
-1. Use search_tiktok_ads with the registered advertiser name (exact, case-sensitive — e.g. "Anysphere", not "Cursor") or a keyword
+1. Use search_tiktok_ads with the registered advertiser name (exact, case-sensitive — e.g. "Anysphere", not "Cursor"). It cannot search by topic or keyword; find advertisers elsewhere first.
 2. Use get_tiktok_ad_details with an ad id from the search results for full creative, landing page, and country targeting data
 3. Use analyze_ad_image/analyze_ad_video for comprehensive media analysis
 
@@ -49,7 +49,7 @@ AD_LIBRARY_URL = "https://library.tiktok.com/ads"
 
 
 @mcp.tool(
-  description="Search TikTok's public Ad Library for the ads an advertiser is running. Use the registered advertiser name (exact, case-sensitive — e.g. 'Anysphere', not 'Cursor'), or a keyword to discover ads by topic. Returns ad ids, run dates, spend/impression bands and media URLs. The result's changes block lists ads first shown in the last 7 days and, when the same advertiser was fetched 24h+ ago, which ads are new since then and how many dropped out. For complete analysis of visual elements, colors, design, or creative content, you MUST also use analyze_ad_video (passing ad_id) or analyze_ad_image on the media returned by each ad.",
+  description="Search TikTok's public Ad Library for the ads an advertiser is running. Use the registered advertiser name (exact, case-sensitive — e.g. 'Anysphere', not 'Cursor'). Advertiser names only: topic or keyword queries return nothing. Returns ad ids, run dates, spend/impression bands and media URLs. The result's changes block lists ads first shown in the last 7 days and, when the same advertiser was fetched 24h+ ago, which ads are new since then and how many dropped out. For complete analysis of visual elements, colors, design, or creative content, you MUST also use analyze_ad_video (passing ad_id) or analyze_ad_image on the media returned by each ad.",
   annotations={
     "title": "Search TikTok Ads",
     "readOnlyHint": True,
@@ -61,7 +61,7 @@ def search_tiktok_ads(
     limit: Optional[int] = 50,
     cursor: Optional[str] = None
 ) -> Dict[str, Any]:
-    """Search the TikTok Ad Library by advertiser name or keyword.
+    """Search the TikTok Ad Library by registered advertiser name.
 
     TikTok's public Ad Library indexes advertisers by their registered business name,
     which is often not the consumer-facing brand name (e.g. Cursor is registered as
@@ -69,7 +69,7 @@ def search_tiktok_ads(
     if a brand name returns nothing.
 
     Args:
-        query: Advertiser name or keyword to search for.
+        query: Exact, case-sensitive registered advertiser name.
         limit: Maximum number of ads to retrieve (default: 50). Results are paged automatically.
         cursor: Pagination cursor from a previous response.
 

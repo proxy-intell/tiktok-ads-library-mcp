@@ -152,13 +152,13 @@ def _request(url: str, params: Dict[str, Any]) -> Dict[str, Any]:
 
 def search_ads(query: str, limit: int = 50, cursor: Optional[str] = None) -> Dict[str, Any]:
     """
-    Search the TikTok Ad Library by advertiser name or keyword.
+    Search the TikTok Ad Library by registered advertiser name.
 
     Pages through results until `limit` ads are collected, the API runs out of
     pages, or MAX_PAGES is hit.
 
     Args:
-        query: Advertiser name (e.g. "Anysphere") or keyword to search for.
+        query: Exact, case-sensitive advertiser name (e.g. "Anysphere").
         limit: Maximum number of ads to return.
         cursor: Pagination cursor from a previous response.
 
