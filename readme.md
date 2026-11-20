@@ -12,7 +12,7 @@ This is a Model Context Protocol (MCP) server for the TikTok Ad Library.
 
 With this you can search TikTok's public ad library for any advertiser, see the creatives they're running and analyze their advertising. You can analyze ad images and cover frames, analyze video ads with scene-by-scene insights, compare advertisers' strategies, track what competitors launched since last week, and get insights into what's working in their campaigns.
 
-**New in v1.1:** "what changed since last fetch" on every advertiser search, three built-in research playbooks, images returned so the model actually sees them, retries on upstream errors, and video analysis on current Gemini models. See the [release notes](https://github.com/proxy-intell/tiktok-ads-library-mcp/releases).
+**New in v1.1:** "what changed since last fetch" on every advertiser search, three built-in research playbooks, images returned so the model actually sees them, retries on upstream errors, and video analysis on current Gemini models. See the [changelog](CHANGELOG.md).
 
 Here's an example of what you can do when it's connected to Claude.
 
