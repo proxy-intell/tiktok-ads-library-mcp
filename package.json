@@ -1,6 +1,6 @@
 {
   "name": "@proxy-intell/tiktok-ads-library-mcp",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The most visual MCP server for the TikTok Ad Library. Query any brand and your AI renders actual ad creatives inside chat.",
   "main": "index.js",
   "bin": {

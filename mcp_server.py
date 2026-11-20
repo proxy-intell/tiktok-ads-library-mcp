@@ -1,3 +1,8 @@
+from dotenv import load_dotenv
+
+# Load .env before the services read their settings (GEMINI_MODEL, API keys).
+load_dotenv()
+
 from src.telemetry import TrackedFastMCP
 from src.services.scrapecreators_service import (
     search_ads,
@@ -7,15 +12,14 @@ from src.services.scrapecreators_service import (
     get_scrapecreators_api_key,
 )
 from src.services.media_cache_service import media_cache, image_cache  # Keep image_cache for backward compatibility
-from src.services.gemini_service import configure_gemini, upload_video_to_gemini, analyze_video_with_gemini, cleanup_gemini_file
+from src.services.gemini_service import GEMINI_MODEL, configure_gemini, upload_video_to_gemini, analyze_video_with_gemini, cleanup_gemini_file
+from src import ad_history
+from src.playbooks import PLAYBOOKS, TRIGGERS
+from mcp.server.fastmcp import Image
 from typing import Dict, Any, List, Optional
+import json
 import requests
-import base64
 import os
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 
 
 INSTRUCTIONS = """
@@ -29,6 +33,10 @@ Workflow:
 
 TikTok CDN media URLs are signed and expire quickly. Always pass ad_id to analyze_ad_video
 so the server can fetch a fresh URL instead of reusing a stale one from an earlier search.
+
+Re-running search_tiktok_ads for an advertiser 24h+ later reports which ads are new and how
+many dropped out since the last fetch. For a research job (video scripts, competitor teardown,
+weekly competitor tracking) call get_playbook first and follow it.
 """
 
 
@@ -41,7 +49,7 @@ AD_LIBRARY_URL = "https://library.tiktok.com/ads"
 
 
 @mcp.tool(
-  description="Search TikTok's public Ad Library for the ads an advertiser is running. Use the registered advertiser name (exact, case-sensitive — e.g. 'Anysphere', not 'Cursor'), or a keyword to discover ads by topic. Returns ad ids, run dates, spend/impression bands and media URLs. For complete analysis of visual elements, colors, design, or creative content, you MUST also use analyze_ad_video (passing ad_id) or analyze_ad_image on the media returned by each ad.",
+  description="Search TikTok's public Ad Library for the ads an advertiser is running. Use the registered advertiser name (exact, case-sensitive — e.g. 'Anysphere', not 'Cursor'), or a keyword to discover ads by topic. Returns ad ids, run dates, spend/impression bands and media URLs. The result's changes block lists ads first shown in the last 7 days and, when the same advertiser was fetched 24h+ ago, which ads are new since then and how many dropped out. For complete analysis of visual elements, colors, design, or creative content, you MUST also use analyze_ad_video (passing ad_id) or analyze_ad_image on the media returned by each ad.",
   annotations={
     "title": "Search TikTok Ads",
     "readOnlyHint": True,
@@ -107,10 +115,13 @@ def search_tiktok_ads(
             }
 
         advertiser = result.get('advertiser_name') or query
+        # Continuation pages are part of an earlier fetch: diff only the first page of a search.
+        changes = None if cursor else ad_history.changes(f"tiktok:{advertiser}:{limit}", ads)
         return {
             "success": True,
             "message": f"Successfully retrieved {len(ads)} TikTok ads for '{advertiser}'.",
             "ads": ads,
+            "changes": changes,
             "cursor": result.get('cursor'),
             "has_more": result.get('has_more', False),
             "total": result.get('total'),
@@ -224,112 +235,64 @@ def get_tiktok_ad_details(ad_id: str) -> Dict[str, Any]:
 
 
 @mcp.tool(
-  description="REQUIRED for analyzing images from TikTok ads. Download and analyze ad images (cover frames and static creatives) to extract visual elements, text content, colors, people, brand elements, and composition details. This tool should be used for EVERY image URL returned by search_tiktok_ads when doing comprehensive analysis. Uses intelligent caching so multiple image analysis calls are efficient and cost-free.",
+  description="Analyze a TikTok ad image (cover frame or static creative): returns the image itself so you can see it, plus a checklist (text, hooks, people, brand elements, composition, safe zones, colors). Pass one cover_images or image_urls entry from search_tiktok_ads. Downloads are cached locally.",
   annotations={
     "title": "Analyze Ad Image Content",
     "readOnlyHint": True,
     "openWorldHint": True
   }
 )
-def analyze_ad_image(media_url: str, brand_name: Optional[str] = None, ad_id: Optional[str] = None) -> Dict[str, Any]:
-    """Download TikTok ad images and prepare them for visual analysis by the MCP client.
+def analyze_ad_image(media_url: str, brand_name: Optional[str] = None, ad_id: Optional[str] = None) -> Any:
+    """Download a TikTok ad image and hand it to the model for visual analysis.
 
-    This tool downloads images from TikTok CDN URLs and provides them in a format
-    that Claude can analyze using its vision capabilities. Images are cached locally
-    to avoid re-downloading. The tool provides detailed analysis instructions to ensure
-    comprehensive, objective visual analysis.
+    The image comes back as an image content block, so the model sees it with its own vision,
+    plus a checklist of what to extract. Downloads are cached locally.
 
     Args:
         media_url: The direct URL to the TikTok ad image (cover_img or image_urls entry).
         brand_name: Optional brand name for cache organization.
         ad_id: Optional ad ID for tracking purposes.
-
-    Returns:
-        A dictionary containing:
-        - success: Boolean indicating if download was successful
-        - message: Status message
-        - cached: Boolean indicating if image was retrieved from cache
-        - image_data: Base64 encoded image data for vision analysis
-        - media_url: Original image URL
-        - analysis_instructions: Detailed prompt for objective visual analysis
-        - cache_status: Information about cache usage
-        - error: Error details if download failed
     """
     if not media_url or not media_url.strip():
-        return {
-            "success": False,
-            "message": "Media URL must be provided and cannot be empty.",
-            "cached": False,
-            "analysis": {},
-            "cache_info": {},
-            "error": "Missing or empty media URL"
-        }
-
+        return {"success": False, "message": "media_url must be provided and cannot be empty.", "error": "Missing media URL"}
+    media_url = media_url.strip()
     try:
-        # Check cache first
-        cached_data = image_cache.get_cached_image(media_url.strip())
-
-        if cached_data and cached_data.get('analysis_results'):
-            # Return cached analysis results
-            return {
-                "success": True,
-                "message": f"Retrieved cached analysis for {media_url}",
-                "cached": True,
-                "analysis": cached_data['analysis_results'],
-                "cache_info": {
-                    "cached_at": cached_data.get('downloaded_at'),
-                    "analysis_cached_at": cached_data.get('analysis_cached_at'),
-                    "file_size": cached_data.get('file_size'),
-                    "brand_name": cached_data.get('brand_name'),
-                    "ad_id": cached_data.get('ad_id')
-                },
-                "error": None
-            }
-
-        # Determine if we need to download
-        image_data = None
-
-        if cached_data:
-            # Image is cached but no analysis results yet
+        cached = image_cache.get_cached_image(media_url)
+        image_bytes, content_type = None, None
+        if cached:
             try:
-                with open(cached_data['file_path'], 'rb') as f:
+                with open(cached['file_path'], 'rb') as f:
                     image_bytes = f.read()
-                image_data = base64.b64encode(image_bytes).decode('utf-8')
-            except Exception:
-                # Cache file corrupted, will re-download
-                cached_data = None
-
-        if not cached_data:
-            # Download the image
-            response = requests.get(media_url.strip(), timeout=30)
+                content_type = cached['content_type']
+            except OSError:
+                cached = None  # cache file gone, download again
+        if not cached:
+            response = requests.get(media_url, timeout=30)
             response.raise_for_status()
-
-            # Check if it's an image
             content_type = response.headers.get('content-type', '').lower()
-            if not any(img_type in content_type for img_type in ['image/', 'jpeg', 'jpg', 'png', 'gif', 'webp']):
-                return {
-                    "success": False,
-                    "message": f"URL does not point to a valid image. Content type: {content_type}",
-                    "cached": False,
-                    "analysis": {},
-                    "cache_info": {},
-                    "error": f"Invalid content type: {content_type}"
-                }
+            if not content_type.startswith('image/'):
+                return {"success": False, "message": f"URL does not point to an image (content type: {content_type}). TikTok media URLs expire; re-run search_tiktok_ads or get_tiktok_ad_details for a fresh one.", "error": f"Invalid content type: {content_type}"}
+            image_cache.cache_image(url=media_url, image_data=response.content, content_type=content_type, brand_name=brand_name, ad_id=ad_id)
+            image_bytes = response.content
 
-            # Cache the downloaded image
-            image_cache.cache_image(
-                url=media_url.strip(),
-                image_data=response.content,
-                content_type=content_type,
-                brand_name=brand_name,
-                ad_id=ad_id
-            )
+        info = {
+            "success": True,
+            "media_url": media_url,
+            "brand_name": brand_name,
+            "ad_id": ad_id,
+            "ad_library_url": AD_LIBRARY_URL,
+            "cache_status": "Used cached image" if cached else "Downloaded and cached new image",
+            "analysis_instructions": IMAGE_ANALYSIS_PROMPT,
+        }
+        fmt = content_type.split('/')[-1].split(';')[0].replace('jpg', 'jpeg')
+        return [json.dumps(info), Image(data=image_bytes, format=fmt)]
+    except requests.exceptions.RequestException as e:
+        return {"success": False, "message": f"Failed to download image from {media_url}: {str(e)}. TikTok media URLs expire; fetch the ad again for a fresh one.", "error": f"Network error: {str(e)}"}
+    except Exception as e:
+        return {"success": False, "message": f"Failed to process image from {media_url}: {str(e)}", "error": str(e)}
 
-            # Encode for analysis
-            image_data = base64.b64encode(response.content).decode('utf-8')
 
-        # Construct comprehensive analysis prompt - let the client control presentation
-        analysis_prompt = """
+IMAGE_ANALYSIS_PROMPT = """
 Analyze this TikTok ad image and extract ALL factual information about:
 
 **Overall Visual Description:**
@@ -383,42 +346,6 @@ Analyze this TikTok ad image and extract ALL factual information about:
 
 Extract ALL this information comprehensively. The presentation format (summary vs detailed breakdown) will be determined based on the user's specific request context.
 """
-
-        result = {
-            "success": True,
-            "message": "Image downloaded and ready for analysis.",
-            "cached": bool(cached_data),
-            "image_data": image_data,
-            "media_url": media_url,
-            "brand_name": brand_name,
-            "ad_id": ad_id,
-            "analysis_instructions": analysis_prompt,
-            "ad_library_url": AD_LIBRARY_URL,
-            "source_citation": f"[TikTok Ad Library - {brand_name if brand_name else 'Ad'} #{ad_id if ad_id else 'Unknown'}]({media_url})",
-            "cache_status": "Used cached image" if cached_data else "Downloaded and cached new image",
-            "error": None
-        }
-
-        return result
-
-    except requests.exceptions.RequestException as e:
-        return {
-            "success": False,
-            "message": f"Failed to download image from {media_url}: {str(e)}",
-            "cached": False,
-            "analysis": {},
-            "cache_info": {},
-            "error": f"Network error: {str(e)}"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "message": f"Failed to process image from {media_url}: {str(e)}",
-            "cached": False,
-            "analysis": {},
-            "cache_info": {},
-            "error": str(e)
-        }
 
 
 @mcp.tool(
@@ -844,7 +771,7 @@ def analyze_ad_video(ad_id: Optional[str] = None, media_url: Optional[str] = Non
 
         analysis_results = {
             "raw_analysis": analysis_text,
-            "model_used": os.getenv("GEMINI_MODEL", "gemini-2.0-flash-exp"),
+            "model_used": GEMINI_MODEL,
             "video_metadata": {
                 "file_size_mb": round(file_size / (1024 * 1024), 2) if file_size else None,
                 "duration_seconds": duration_seconds,
@@ -895,6 +822,33 @@ def analyze_ad_video(ad_id: Optional[str] = None, media_url: Optional[str] = Non
                 cleanup_gemini_file(configure_gemini(), gemini_file.name)
             except Exception:
                 pass
+
+
+@mcp.tool(
+  description="Load a playbook: the step-by-step method for an ad research job (which tool calls, what to look for, output format). Call it BEFORE starting when the request matches a job, then follow it. Jobs:\n" + "\n".join(f"- {job}: {trigger}" for job, trigger in TRIGGERS.items()),
+  annotations={
+    "title": "Get Analysis Playbook",
+    "readOnlyHint": True,
+    "openWorldHint": False
+  }
+)
+def get_playbook(job: str) -> str:
+    """Return the playbook text for a job: script_writing, competitor_teardown, competitor_watch."""
+    key = job.strip().lower().replace(" ", "_").replace("-", "_")
+    if key not in PLAYBOOKS:
+        return f"Unknown job '{job}'. Valid jobs: {', '.join(PLAYBOOKS)}."
+    return PLAYBOOKS[key]
+
+
+def _playbook_prompt(job: str):
+    def prompt(brief: str = "") -> str:
+        return f"Run this playbook.{f' My brief: {brief}' if brief else ''}\n\n{PLAYBOOKS[job]}"
+    return prompt
+
+
+# The same playbooks in the host's prompt menu (Claude Desktop, Claude Code, Cursor).
+for _job, _trigger in TRIGGERS.items():
+    mcp.prompt(name=_job, title=_job.replace("_", " ").capitalize(), description=f"Playbook for {_trigger}.")(_playbook_prompt(_job))
 
 
 if __name__ == "__main__":

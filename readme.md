@@ -10,7 +10,9 @@
 
 This is a Model Context Protocol (MCP) server for the TikTok Ad Library.
 
-With this you can search TikTok's public ad library for any advertiser, see the creatives they're running and analyze their advertising. You can analyze ad images and cover frames, analyze video ads with scene-by-scene insights, compare advertisers' strategies, and get insights into what's working in their campaigns.
+With this you can search TikTok's public ad library for any advertiser, see the creatives they're running and analyze their advertising. You can analyze ad images and cover frames, analyze video ads with scene-by-scene insights, compare advertisers' strategies, track what competitors launched since last week, and get insights into what's working in their campaigns.
+
+**New in v1.1:** "what changed since last fetch" on every advertiser search, three built-in research playbooks, images returned so the model actually sees them, retries on upstream errors, and video analysis on current Gemini models. See the [release notes](https://github.com/proxy-intell/tiktok-ads-library-mcp/releases).
 
 Here's an example of what you can do when it's connected to Claude.
 
@@ -38,6 +40,8 @@ Prefer to run it yourself? The full self-host setup is documented below.
 | Ad libraries | Meta, Google, LinkedIn and TikTok (EU) in one server | TikTok (EU) only |
 | Cost | Free for 20 credits a day; paid plans for more | ScrapeCreators credits (about $1.88 per 1,000 calls) plus Gemini usage for video |
 | API keys | None, sign in with OAuth | ScrapeCreators, plus Gemini for video |
+| What changed since last fetch | ✅ | ✅ |
+| Research playbooks (scripts, teardowns, weekly watch) | ✅ | ✅ |
 | Competitor discovery and competitive brief | ✅ | ❌ |
 | Inline ad carousel | ✅ | ❌ |
 | ChatGPT and claude.ai | ✅ (ChatGPT app and Claude connector) | ❌ (they need a public OAuth server) |
@@ -65,6 +69,20 @@ Analyze the video ads from 'Gymshark' and tell me which read as creator-style UG
 
 ```plaintext
 Compare the messaging and creative style between 'Anysphere' and 'Notion Labs' on TikTok. Give it a nice forwardable summary.
+```
+
+### Competitor Tracking
+
+```plaintext
+Pull Gymshark's TikTok ads. I'll ask again next week: tell me what's new then.
+```
+
+### Playbooks
+
+Your MCP client's prompt menu now lists three playbooks: `script_writing`, `competitor_teardown` and `competitor_watch`. Or just ask, and the model loads the right one with `get_playbook`:
+
+```plaintext
+Write me 3 TikTok scripts for my protein bars based on the longest-running video ads from 'Grenade' and 'MyProtein'.
 ```
 
 ---
@@ -231,10 +249,11 @@ This MCP server provides tools for interacting with TikTok Ad Library objects:
 
 | Tool Name                | Description                                                                                     |
 | ------------------------ | ----------------------------------------------------------------------------------------------- |
-| `search_tiktok_ads`      | Searches the TikTok Ad Library by advertiser name or keyword, with automatic pagination           |
+| `search_tiktok_ads`      | Searches the TikTok Ad Library by advertiser name, plus what changed since the last fetch         |
 | `get_tiktok_ad_details`  | Gets full detail for a specific ad — landing page, country targeting, engagement, fresh video URL |
-| `analyze_ad_image`       | Downloads and analyzes ad images for visual elements, text, colors, and composition               |
-| `analyze_ad_video`       | Downloads and analyzes ad videos using Gemini AI for scene-by-scene creative insights             |
+| `analyze_ad_image`       | Returns the ad image to the model for visual analysis                                             |
+| `analyze_ad_video`       | Analyzes ad videos with Gemini (set `GEMINI_MODEL` to change the model)                           |
+| `get_playbook`           | **NEW** - Step-by-step method for a research job (also served as prompts)                         |
 | `get_cache_stats`        | Gets statistics about cached media (images and videos) and storage usage                          |
 | `search_cached_media`    | Searches previously analyzed media by brand, colors, people, or media type                        |
 | `cleanup_media_cache`    | Cleans up old cached media files to free disk space                                               |
@@ -259,6 +278,7 @@ This MCP server provides tools for interacting with TikTok Ad Library objects:
 **Video Analysis Not Working:**
 - Confirm you have a valid Google Gemini API key in your `.env` file
 - Pass `ad_id` rather than `media_url`. A `video_url` copied from an earlier search response has almost certainly expired
+- If Gemini says the model is not found, set `GEMINI_MODEL` in `.env` to a current model from [Google's model list](https://ai.google.dev/gemini-api/docs/models)
 
 **MCP Server Connection Issues:**
 - Verify the path in your MCP configuration points to the correct location
@@ -271,10 +291,10 @@ For additional Claude Desktop integration troubleshooting, see the [MCP document
 
 ## Tests
 
-The response parsing has a self-check that runs without network access or API keys:
+The tests run without network access or API keys:
 
 ```bash
-python3 test_parsing.py
+for t in test_*.py; do python3 "$t"; done
 ```
 
 ---
